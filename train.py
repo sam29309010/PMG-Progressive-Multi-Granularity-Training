@@ -11,12 +11,18 @@ import torch.backends.cudnn as cudnn
 from utils import *
 
 
-def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_path=None):
+def train(
+        nb_epoch,
+        batch_size,
+        store_name,
+        resume=False,
+        start_epoch=0,
+        model_path=None):
     # setup output
     exp_dir = store_name
     try:
         os.stat(exp_dir)
-    except:
+    except BaseException:
         os.makedirs(exp_dir)
 
     use_cuda = torch.cuda.is_available()
@@ -31,18 +37,27 @@ def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_p
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
-    trainset = torchvision.datasets.ImageFolder(root='./bird/train', transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4)
+    trainset = torchvision.datasets.ImageFolder(
+        root='../CUB200/training_images',
+        transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(
+        trainset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     # Model
     if resume:
         net = torch.load(model_path)
     else:
-        net = load_model(model_name='resnet50_pmg', pretrain=True, require_grad=True)
-    netp = torch.nn.DataParallel(net, device_ids=[0,1])
+        # net = load_model(model_name='resnet50_pmg', pretrain=True, require_grad=True)
+        net = load_model(
+            model_name='resnet101_pmg',
+            pretrain=True,
+            require_grad=True)
+    netp = net
+    # netp = torch.nn.DataParallel(net, device_ids=[0,1])
 
     # GPU
-    device = torch.device("cuda:0,1")
+    # device = torch.device("cuda:0,1")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     net.to(device)
     # cudnn.benchmark = True
 
@@ -83,7 +98,8 @@ def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_p
 
             # update learning rate
             for nlr in range(len(optimizer.param_groups)):
-                optimizer.param_groups[nlr]['lr'] = cosine_anneal_schedule(epoch, nb_epoch, lr[nlr])
+                optimizer.param_groups[nlr]['lr'] = cosine_anneal_schedule(
+                    epoch, nb_epoch, lr[nlr])
 
             # Step 1
             optimizer.zero_grad()
@@ -121,7 +137,8 @@ def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_p
             total += targets.size(0)
             correct += predicted.eq(targets.data).cpu().sum()
 
-            train_loss += (loss1.item() + loss2.item() + loss3.item() + concat_loss.item())
+            train_loss += (loss1.item() + loss2.item() +
+                           loss3.item() + concat_loss.item())
             train_loss1 += loss1.item()
             train_loss2 += loss2.item()
             train_loss3 += loss3.item()
@@ -130,19 +147,20 @@ def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_p
             if batch_idx % 50 == 0:
                 print(
                     'Step: %d | Loss1: %.3f | Loss2: %.5f | Loss3: %.5f | Loss_concat: %.5f | Loss: %.3f | Acc: %.3f%% (%d/%d)' % (
-                    batch_idx, train_loss1 / (batch_idx + 1), train_loss2 / (batch_idx + 1),
-                    train_loss3 / (batch_idx + 1), train_loss4 / (batch_idx + 1), train_loss / (batch_idx + 1),
-                    100. * float(correct) / total, correct, total))
+                        batch_idx, train_loss1 / (batch_idx + 1), train_loss2 / (batch_idx + 1),
+                        train_loss3 / (batch_idx + 1), train_loss4 / (batch_idx + 1), train_loss / (batch_idx + 1),
+                        100. * float(correct) / total, correct, total))
 
         train_acc = 100. * float(correct) / total
         train_loss = train_loss / (idx + 1)
         with open(exp_dir + '/results_train.txt', 'a') as file:
             file.write(
                 'Iteration %d | train_acc = %.5f | train_loss = %.5f | Loss1: %.3f | Loss2: %.5f | Loss3: %.5f | Loss_concat: %.5f |\n' % (
-                epoch, train_acc, train_loss, train_loss1 / (idx + 1), train_loss2 / (idx + 1), train_loss3 / (idx + 1),
-                train_loss4 / (idx + 1)))
+                    epoch, train_acc, train_loss, train_loss1 / (idx + 1), train_loss2 / (idx + 1), train_loss3 / (idx + 1),
+                    train_loss4 / (idx + 1)))
 
-        if epoch < 5 or epoch >= 80:
+        # if epoch < 5 or epoch >= 80:
+        if True:
             val_acc, val_acc_com, val_loss = test(net, CELoss, 3)
             if val_acc_com > max_val_acc:
                 max_val_acc = val_acc_com
@@ -150,17 +168,18 @@ def train(nb_epoch, batch_size, store_name, resume=False, start_epoch=0, model_p
                 torch.save(net, './' + store_name + '/model.pth')
                 net.to(device)
             with open(exp_dir + '/results_test.txt', 'a') as file:
-                file.write('Iteration %d, test_acc = %.5f, test_acc_combined = %.5f, test_loss = %.6f\n' % (
-                epoch, val_acc, val_acc_com, val_loss))
-        else:
-            net.cpu()
-            torch.save(net, './' + store_name + '/model.pth')
-            net.to(device)
+                file.write(
+                    'Iteration %d, test_acc = %.5f, test_acc_combined = %.5f, test_loss = %.6f\n' %
+                    (epoch, val_acc, val_acc_com, val_loss))
+        # else:
+        #     net.cpu()
+        #     torch.save(net, './' + store_name + '/model.pth')
+        #     net.to(device)
 
 
-train(nb_epoch=200,             # number of epoch
-         batch_size=16,         # batch size
-         store_name='bird',     # folder for output
-         resume=False,          # resume training from checkpoint
-         start_epoch=0,         # the start epoch number when you resume the training
-         model_path='')         # the saved model where you want to resume the training
+train(nb_epoch=100,             # number of epoch
+      batch_size=4,         # batch size
+      store_name='bird',     # folder for output
+      resume=False,          # resume training from checkpoint
+      start_epoch=0,         # the start epoch number when you resume the training
+      model_path='')         # the saved model where you want to resume the training
